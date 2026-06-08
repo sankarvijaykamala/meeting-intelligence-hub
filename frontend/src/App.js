@@ -3,6 +3,7 @@ import Navbar from './components/Navbar';
 import Dashboard from './pages/Dashboard';
 import UploadPage from './pages/UploadPage';
 import MeetingDetail from './pages/MeetingDetail';
+import SearchPage from './pages/SearchPage';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
             <Route path="/" element={<Dashboard />} />
             <Route path="/upload" element={<UploadPage />} />
             <Route path="/meeting/:id" element={<MeetingDetail />} />
+            <Route path="/search" element={<SearchPage />} />
           </Routes>
         </main>
       </div>

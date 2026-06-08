@@ -10,7 +10,7 @@ export default function SearchPage() {
   const [answer, setAnswer] = useState('');
   const [sources, setSources] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [mode, setMode] = useState('search'); // 'search' or 'ask'
+  const [mode, setMode] = useState('search');
 
   const handleSearch = async () => {
     if (!query) return;
@@ -81,12 +81,27 @@ export default function SearchPage() {
             </button>
           </div>
 
+          {/* Results count */}
+          {searchResults.length > 0 && (
+            <p className="text-xs text-gray-400 mb-3">{searchResults.length} result{searchResults.length !== 1 ? 's' : ''} found</p>
+          )}
+
           <div className="space-y-3">
+            {searchResults.length === 0 && !loading && query && (
+              <div className="text-center py-10 text-gray-400">
+                <p>No relevant results found. Try a different query.</p>
+              </div>
+            )}
             {searchResults.map((r, i) => (
               <div key={i} className="bg-white rounded-xl shadow p-5">
                 <div className="flex justify-between items-start mb-2">
                   <span className="text-sm font-medium text-blue-600">{r.title}</span>
-                  <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">{r.type}</span>
+                  <div className="flex gap-2">
+                    <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">{r.type}</span>
+                    <span className="text-xs text-green-600 bg-green-50 px-2 py-1 rounded">
+                      {Math.round((1 - r.distance) * 100)}% match
+                    </span>
+                  </div>
                 </div>
                 <p className="text-sm text-gray-700 leading-relaxed">{r.text}</p>
               </div>

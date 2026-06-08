@@ -2,7 +2,6 @@ from flask import Blueprint, request, jsonify
 import psycopg2
 import os
 import sys
-import whisper
 from groq import Groq
 import json
 import tempfile
@@ -16,18 +15,19 @@ process_bp = Blueprint('process', __name__)
 def get_db():
     return psycopg2.connect(Config.SUPABASE_DB_URL)
 
-# Load Whisper model once at startup
-print("Loading Whisper model...")
-whisper_model = whisper.load_model("base")
-print("Whisper model loaded.")
-
 # Initialize Groq client
 groq_client = Groq(api_key=Config.GROQ_API_KEY)
+print("Groq client initialized.")
 
 def transcribe_audio(audio_path):
-    """Use Whisper to convert audio file to text"""
-    result = whisper_model.transcribe(audio_path)
-    return result["text"]
+    """Use Groq Whisper API to transcribe — fast, no local model needed"""
+    with open(audio_path, "rb") as audio_file:
+        transcription = groq_client.audio.transcriptions.create(
+            file=(os.path.basename(audio_path), audio_file),
+            model="whisper-large-v3",
+            response_format="text"
+        )
+    return transcription
 
 def run_ai_agents(transcript_text):
     prompt = f"""You are a meeting intelligence agent. Analyze the following meeting transcript and extract structured information.
@@ -129,15 +129,25 @@ def process_meeting():
             return jsonify({"error": "Date is required"}), 400
 
         if audio_file:
-            with tempfile.NamedTemporaryFile(
-                suffix='.' + audio_file.filename.split('.')[-1],
-                delete=False
-            ) as tmp:
+            # Check file size — Groq Whisper limit is 25MB
+            audio_file.seek(0, 2)
+            file_size_mb = audio_file.tell() / (1024 * 1024)
+            audio_file.seek(0)
+
+            if file_size_mb > 25:
+                return jsonify({
+                    "error": f"Audio file is {file_size_mb:.1f}MB. Groq Whisper limit is 25MB. Please compress the audio and try again."
+                }), 400
+
+            suffix = '.' + audio_file.filename.split('.')[-1]
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
                 audio_file.save(tmp.name)
                 tmp_path = tmp.name
 
+            print(f"Transcribing audio: {file_size_mb:.1f}MB...")
             transcript_text = transcribe_audio(tmp_path)
             os.unlink(tmp_path)
+            print("Transcription complete.")
 
         elif not transcript_text:
             return jsonify(
@@ -156,16 +166,26 @@ def process_meeting():
         conn.commit()
         cur.close()
 
+        print("Running AI agents...")
         ai_results = run_ai_agents(transcript_text)
+        print("AI processing complete.")
 
-        save_to_db(
-            conn,
-            meeting_id,
-            transcript_text,
-            ai_results
-        )
+        save_to_db(conn, meeting_id, transcript_text, ai_results)
 
         conn.close()
+
+        # Phase 2: Store in vector DB for semantic search
+        try:
+            from services.embeddings import add_meeting_to_vector_db
+            add_meeting_to_vector_db(
+                meeting_id=meeting_id,
+                title=title,
+                transcript=transcript_text,
+                summary=ai_results["summary"]
+            )
+            print("Embeddings stored.")
+        except Exception as e:
+            print(f"Warning: embeddings failed: {e}")
 
         return jsonify({
             "meeting_id": meeting_id,
@@ -177,6 +197,6 @@ def process_meeting():
         })
 
     except Exception as e:
-      import traceback
-      traceback.print_exc()
-      return jsonify({"error": str(e)}), 500
+        import traceback
+        traceback.print_exc()
+        return jsonify({"error": str(e)}), 500
